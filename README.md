@@ -26,7 +26,7 @@ The three source datasets contain inconsistent formatting, mixed representations
 
 **Problem:** The CTC field contains both raw INR values, such as `417964`, and decimal values representing lakhs, such as `4.2`.
 
-**Handling:** A documented heuristic is used: values below 100 are interpreted as lakhs and multiplied by 100,000; larger values are treated as INR as reported.
+**Handling:** A documented heuristic is used: values below 100 are interpreted as lakhs and multiplied by 100,000; larger values are treated as INR as reported. The normalized INR value and the assumption used for conversion are retained separately.
 
 **Caveat:** This is an assumption based on the observed dataset and should be treated as a data-quality limitation rather than a universally valid rule.
 
@@ -40,12 +40,10 @@ The three source datasets contain inconsistent formatting, mixed representations
 
 **Problem:** Source2 contains two unusable records:
 
-* one fully blank row
-* one column-shifted row where the `email_id` field contains skill-tag data instead of an email address
+- one fully blank row
+- one column-shifted row where the `email_id` field contains skill-tag data instead of an email address
 
-**Handling:** Both rows are removed because they cannot reliably represent a worker record.
-
-The pipeline logs the number of dropped rows during execution.
+**Handling:** Both rows are removed because they cannot reliably represent a worker record. The pipeline logs the number of dropped rows during execution.
 
 ### 7. Repeated header in source3
 
@@ -59,8 +57,8 @@ The pipeline logs the number of dropped rows during execution.
 
 **Handling:** The rate is parsed into two normalized fields:
 
-* `rate_value`
-* `rate_period`
+- `rate_value`
+- `rate_period`
 
 This preserves both the numerical amount and its billing period instead of treating the values as directly comparable.
 
@@ -100,12 +98,13 @@ Records that share a name but do not have a matching identifying key are not sil
 
 After cleaning the source files:
 
-* **102 valid source records** were processed.
-* **2 unusable source2 rows** were removed.
-* **1 repeated source3 header row** was removed.
-* The remaining records resolved into **60 distinct people**.
-* **102 source records** are retained in `person_sources` as an audit trail.
-* **257 normalized skill records** are stored in `person_skills`.
-* **1 name-variant case** is stored in `needs_review`.
+- **3 malformed/redundant rows** were removed:
+  - 2 unusable rows from Source 2
+  - 1 repeated header row from Source 3
+- **102 usable source records** remained after cleaning.
+- These records resolved into **60 distinct people**.
+- All **102 usable source records** are retained in `person_sources` as an audit trail.
+- **257 normalized skill records** are stored in `person_skills`.
+- **1 name-variant case** is stored in `needs_review`.
 
 The resulting database is stored in Supabase PostgreSQL.
