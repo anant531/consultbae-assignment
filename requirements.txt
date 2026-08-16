@@ -4,3 +4,4 @@ python-dotenv
 rapidfuzz
 streamlit
 pydub
+supabase

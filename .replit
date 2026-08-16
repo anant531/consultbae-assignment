@@ -18,3 +18,18 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[nix]
+packages = ["ffmpeg-full", "glibcLocales", "postgresql", "rapidfuzz-cpp", "taskflow"]
+
+[[ports]]
+localPort = 8501
+externalPort = 80
+
+[[ports]]
+localPort = 8502
+externalPort = 3000
+
+[userenv]
+
+[userenv.shared]

@@ -330,154 +330,271 @@ def find_unmatched_name_collisions(s1, s2, s3):
 def main():
     s1, s2, s3 = load_source1(), load_source2(), load_source3()
     clusters = match_people(s1, s2, s3)
+
     people, sources_audit, skills_rows, needs_review = build_people(
         clusters, s1, s2, s3
     )
 
     conn = psycopg.connect(DATABASE_URL)
-    cur = conn.cursor()
 
-    cur.execute("""
-        DROP TABLE IF EXISTS audio_submissions;
-        DROP TABLE IF EXISTS needs_review;
-        DROP TABLE IF EXISTS person_skills;
-        DROP TABLE IF EXISTS person_sources;
-        DROP TABLE IF EXISTS people;
-    """)
+    try:
+        cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE people (
-            person_id INTEGER PRIMARY KEY,
-            full_name TEXT,
-            email TEXT,
-            phone TEXT,
-            city TEXT,
-            experience_years REAL,
-            ctc_inr INTEGER,
-            ctc_assumption TEXT,
-            applied_date TEXT,
-            gig_status TEXT,
-            rate_value INTEGER,
-            rate_period TEXT,
-            verified BOOLEAN,
-            projects_completed INTEGER,
-            in_naukri BOOLEAN,
-            in_gig BOOLEAN,
-            in_cbnexus BOOLEAN,
-            skill_category TEXT
-        )
-    """)
+        # ---------------------------------------------------------
+        # Preserve existing audio submissions before rebuilding
+        # the people table.
+        #
+        # audio_submissions.person_id references people.person_id,
+        # so temporarily remove the person link. The phone number
+        # remains available for re-linking after the rebuild.
+        # ---------------------------------------------------------
 
-    cur.execute("""
-        CREATE TABLE person_sources (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            person_id INTEGER,
-            source TEXT,
-            source_row_id TEXT,
-            raw_name TEXT,
-            FOREIGN KEY(person_id) REFERENCES people(person_id)
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE person_skills (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            person_id INTEGER,
-            skill TEXT,
-            FOREIGN KEY(person_id) REFERENCES people(person_id)
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE needs_review (
-            id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            person_id INTEGER,
-            reason TEXT,
-            detail TEXT
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE audio_submissions (
-            submission_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            person_id INTEGER,
-            name TEXT,
-            phone TEXT,
-            file_path TEXT,
-            duration_sec REAL,
-            sample_rate_hz INTEGER,
-            bitrate_kbps INTEGER,
-            loudness_db REAL,
-            quality_note TEXT,
-            submitted_at TEXT,
-            FOREIGN KEY(person_id) REFERENCES people(person_id)
-        )
-    """)
-
-    for p in people:
-        cur.execute(
-            """
-            INSERT INTO people (
-                person_id, full_name, email, phone, city,
-                experience_years, ctc_inr, ctc_assumption,
-                applied_date, gig_status, rate_value, rate_period,
-                verified, projects_completed,
-                in_naukri, in_gig, in_cbnexus
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS audio_submissions (
+                submission_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                person_id INTEGER,
+                name TEXT,
+                phone TEXT,
+                file_path TEXT,
+                duration_sec REAL,
+                sample_rate_hz INTEGER,
+                bitrate_kbps REAL,
+                loudness_db REAL,
+                quality_note TEXT,
+                submitted_at TEXT
             )
-            VALUES (
-                %(person_id)s, %(full_name)s, %(email)s, %(phone)s, %(city)s,
-                %(experience_years)s, %(ctc_inr)s, %(ctc_assumption)s,
-                %(applied_date)s, %(gig_status)s, %(rate_value)s, %(rate_period)s,
-                %(verified)s, %(projects_completed)s,
-                %(in_naukri)s, %(in_gig)s, %(in_cbnexus)s
+        """)
+
+        cur.execute("""
+            UPDATE audio_submissions
+            SET person_id = NULL
+        """)
+
+        # ---------------------------------------------------------
+        # Rebuild Task 1 tables.
+        # Do NOT drop audio_submissions.
+        # ---------------------------------------------------------
+
+        cur.execute("""
+            DROP TABLE IF EXISTS needs_review;
+            DROP TABLE IF EXISTS person_skills;
+            DROP TABLE IF EXISTS person_sources;
+            DROP TABLE IF EXISTS people CASCADE;
+        """)
+
+        cur.execute("""
+            CREATE TABLE people (
+                person_id INTEGER PRIMARY KEY,
+                full_name TEXT,
+                email TEXT,
+                phone TEXT,
+                city TEXT,
+                experience_years REAL,
+                ctc_inr INTEGER,
+                ctc_assumption TEXT,
+                applied_date TEXT,
+                gig_status TEXT,
+                rate_value INTEGER,
+                rate_period TEXT,
+                verified BOOLEAN,
+                projects_completed INTEGER,
+                in_naukri BOOLEAN,
+                in_gig BOOLEAN,
+                in_cbnexus BOOLEAN,
+                skill_category TEXT
             )
-        """,
-            p,
-        )
+        """)
 
-    for r in sources_audit:
-        cur.execute(
-            """
-            INSERT INTO person_sources (
-                person_id, source, source_row_id, raw_name
+        cur.execute("""
+            CREATE TABLE person_sources (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                person_id INTEGER,
+                source TEXT,
+                source_row_id TEXT,
+                raw_name TEXT,
+                FOREIGN KEY(person_id) REFERENCES people(person_id)
             )
-            VALUES (
-                %(person_id)s, %(source)s, %(source_row_id)s, %(raw_name)s
+        """)
+
+        cur.execute("""
+            CREATE TABLE person_skills (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                person_id INTEGER,
+                skill TEXT,
+                FOREIGN KEY(person_id) REFERENCES people(person_id)
             )
-        """,
-            r,
+        """)
+
+        cur.execute("""
+            CREATE TABLE needs_review (
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                person_id INTEGER,
+                reason TEXT,
+                detail TEXT
+            )
+        """)
+
+        # ---------------------------------------------------------
+        # Insert rebuilt people
+        # ---------------------------------------------------------
+
+        for p in people:
+            cur.execute(
+                """
+                INSERT INTO people (
+                    person_id,
+                    full_name,
+                    email,
+                    phone,
+                    city,
+                    experience_years,
+                    ctc_inr,
+                    ctc_assumption,
+                    applied_date,
+                    gig_status,
+                    rate_value,
+                    rate_period,
+                    verified,
+                    projects_completed,
+                    in_naukri,
+                    in_gig,
+                    in_cbnexus
+                )
+                VALUES (
+                    %(person_id)s,
+                    %(full_name)s,
+                    %(email)s,
+                    %(phone)s,
+                    %(city)s,
+                    %(experience_years)s,
+                    %(ctc_inr)s,
+                    %(ctc_assumption)s,
+                    %(applied_date)s,
+                    %(gig_status)s,
+                    %(rate_value)s,
+                    %(rate_period)s,
+                    %(verified)s,
+                    %(projects_completed)s,
+                    %(in_naukri)s,
+                    %(in_gig)s,
+                    %(in_cbnexus)s
+                )
+                """,
+                p,
+            )
+
+        # ---------------------------------------------------------
+        # Insert source audit records
+        # ---------------------------------------------------------
+
+        for r in sources_audit:
+            cur.execute(
+                """
+                INSERT INTO person_sources (
+                    person_id,
+                    source,
+                    source_row_id,
+                    raw_name
+                )
+                VALUES (
+                    %(person_id)s,
+                    %(source)s,
+                    %(source_row_id)s,
+                    %(raw_name)s
+                )
+                """,
+                r,
+            )
+
+        # ---------------------------------------------------------
+        # Insert skills
+        # ---------------------------------------------------------
+
+        for s in skills_rows:
+            cur.execute(
+                """
+                INSERT INTO person_skills (
+                    person_id,
+                    skill
+                )
+                VALUES (
+                    %(person_id)s,
+                    %(skill)s
+                )
+                """,
+                s,
+            )
+
+        # ---------------------------------------------------------
+        # Insert review flags
+        # ---------------------------------------------------------
+
+        for n in needs_review:
+            cur.execute(
+                """
+                INSERT INTO needs_review (
+                    person_id,
+                    reason,
+                    detail
+                )
+                VALUES (
+                    %(person_id)s,
+                    %(reason)s,
+                    %(detail)s
+                )
+                """,
+                n,
+            )
+
+        # ---------------------------------------------------------
+        # Re-link existing audio submissions to rebuilt people
+        # using normalized phone numbers.
+        # ---------------------------------------------------------
+
+        cur.execute("""
+            UPDATE audio_submissions AS a
+            SET person_id = p.person_id
+            FROM people AS p
+            WHERE a.phone IS NOT NULL
+              AND p.phone IS NOT NULL
+              AND a.phone = p.phone
+        """)
+
+        # Restore the foreign-key relationship.
+        cur.execute("""
+            ALTER TABLE audio_submissions
+            DROP CONSTRAINT IF EXISTS audio_submissions_person_id_fkey
+        """)
+
+        cur.execute("""
+            ALTER TABLE audio_submissions
+            ADD CONSTRAINT audio_submissions_person_id_fkey
+            FOREIGN KEY (person_id)
+            REFERENCES people(person_id)
+        """)
+
+        conn.commit()
+
+        print(
+            f"\n{len(people)} distinct people written "
+            f"from {len(s1) + len(s2) + len(s3)} raw rows"
         )
 
-    for s in skills_rows:
-        cur.execute(
-            """
-            INSERT INTO person_skills (person_id, skill)
-            VALUES (%(person_id)s, %(skill)s)
-        """,
-            s,
+        print(
+            f"{len(needs_review)} people flagged "
+            f"with a name-spelling variant across sources"
         )
 
-    for n in needs_review:
-        cur.execute(
-            """
-            INSERT INTO needs_review (person_id, reason, detail)
-            VALUES (%(person_id)s, %(reason)s, %(detail)s)
-        """,
-            n,
-        )
+        print("\nDatabase written to Supabase PostgreSQL")
+        print("Existing audio submissions were preserved and re-linked.")
 
-    conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
-    print(
-        f"\n{len(people)} distinct people written from {len(s1) + len(s2) + len(s3)} raw rows"
-    )
-    print(
-        f"{len(needs_review)} people flagged with a name-spelling variant across sources"
-    )
-
-    cur.close()
-    conn.close()
-    print("\nDatabase written to Supabase PostgreSQL")
+    finally:
+        cur.close()
+        conn.close()
 
 
 if __name__ == "__main__":
