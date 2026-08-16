@@ -1,0 +1,174 @@
+{
+  "name": "TalentFlow - AI Skill Classification",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    p.person_id,\n    p.full_name,\n    p.email,\n    p.phone,\n    COALESCE(\n        STRING_AGG(ps.skill, ', ' ORDER BY ps.skill),\n        ''\n    ) AS skills\nFROM people p\nLEFT JOIN person_skills ps\n    ON p.person_id = ps.person_id\nWHERE p.person_id = {{ $json.body.record.person_id }}\n  AND p.skill_category IS NULL\nGROUP BY\n    p.person_id,\n    p.full_name,\n    p.email,\n    p.phone;",
+        "options": {}
+      },
+      "id": "0df6b4e6-d8d9-4883-b39b-67b6a7fa2d43",
+      "name": "Fetch Unclassified Candidates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -992,
+        144
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "F9JYGCDumZdZS9mP",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Classify this candidate into exactly one of these categories:\n\n- automation-heavy\n- web dev\n- data\n\nCandidate name: {{ $json.full_name }}\n\nCandidate skills:\n{{ $json.skills }}\n\nReturn ONLY the category name.\nDo not provide an explanation."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "instructions": "You are a skill classifier for a talent platform. Classify each candidate into exactly one of these categories based on their skills: \"automation-heavy\" (workflow automation, integration, no-code/low-code tools), \"web dev\" (frontend/backend web development), or \"data\" (data engineering, analytics, data science). Respond with only the category value.",
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "name": "skill_category",
+              "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"category\":{\"type\":\"string\",\"enum\":[\"automation-heavy\",\"web dev\",\"data\"]}},\"required\":[\"category\"]}",
+              "strict": true
+            }
+          }
+        }
+      },
+      "id": "7846262f-92f6-49af-8a68-52a807b1706e",
+      "name": "Classify Skills",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        -912,
+        -48
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "Q2NPhdASDSrg62Lp",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE people SET skill_category = $1 WHERE person_id = $2",
+        "options": {
+          "queryReplacement": "={{ $json.output[0].content[0].text.category }},{{ $(\"Fetch Unclassified Candidates\").item.json.person_id }}"
+        }
+      },
+      "id": "8e2ee530-318f-4b55-ad48-74d54c35a8a5",
+      "name": "Update Skill Category",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -688,
+        -48
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "F9JYGCDumZdZS9mP",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "talentflow-classify",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1232,
+        -176
+      ],
+      "id": "c6086249-5f53-48c4-a448-44de2564aa52",
+      "name": "Webhook",
+      "webhookId": "21b9d9f9-cd9d-4a40-bf19-034d20b7f25c"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Fetch Unclassified Candidates": {
+      "main": [
+        [
+          {
+            "node": "Classify Skills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Skills": {
+      "main": [
+        [
+          {
+            "node": "Update Skill Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch Unclassified Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "21c1ad2a-5976-49a3-8ce0-265fadf1a2a9",
+  "meta": {
+    "instanceId": "7e8290919834abecf5165fe23a9be5f30d483ba79ec3c3e9f28ae57c1c244623"
+  },
+  "nodeGroups": [
+    {
+      "id": "38483b84-d293-42ad-b8c8-4d26c81c369e",
+      "name": "Ingest",
+      "nodeIds": [
+        "0df6b4e6-d8d9-4883-b39b-67b6a7fa2d43"
+      ],
+      "description": "Reads candidates from Supabase whose skill_category is still NULL."
+    },
+    {
+      "id": "958e85cd-e294-4768-b6cf-d2c3621e56d7",
+      "name": "Classify & Write Back",
+      "nodeIds": [
+        "7846262f-92f6-49af-8a68-52a807b1706e",
+        "8e2ee530-318f-4b55-ad48-74d54c35a8a5"
+      ],
+      "description": "Classifies each candidate with an LLM and updates skill_category in Supabase by person_id."
+    }
+  ],
+  "id": "qtuo49meemnD5ql9",
+  "tags": []
+}
